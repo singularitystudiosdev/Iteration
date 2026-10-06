@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>superbot — ad gallery (real UI)</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="ar-pick" id="lbAr" role="radiogroup" aria-label="aspect ratio"></div>
+<div class="soon-pick" role="group" aria-label="coming-soon intro before every ad">
+  <button type="button" id="soonToggle" aria-pressed="false" title="play a coming-soon card before every ad, in the viewer and in downloads">○ soon intro</button>
+  <select id="soonVariant" aria-label="intro variant"></select>
+</div>
+<button type="button" class="cap-copy" id="capCopy" title="copy your caption edits to send them in">⧉ copy</button>
+<div class="mark-bar" id="markBar" hidden>
+  <button type="button" id="markCopy" title="copy the ids you marked to send them in">✕ 0 marked · copy list</button>
+  <button type="button" id="markClear" title="unmark everything (nothing is deleted here)">clear</button>
+</div>
+<a class="lb-dl" id="lbDl" hidden download>⤓ download</a>
+<header class="top">
+  <h1><span class="prompt">&gt;</span> superbot<span class="cursor">_</span> <span class="dim">// ad gallery · real UI</span></h1>
+  <p class="sub">every ad creative, with the superbot UI matched to the shipped desktop app — click any tile to zoom in or watch it play</p>
+  <nav class="chips" id="typePick" aria-label="media type"></nav>
+  <nav class="chips" id="chips" aria-label="filter"></nav>
+</header>
+
+<main class="grid" id="grid" aria-live="polite">
+  <section class="fav-band" id="favBand" aria-label="favorites" hidden></section>
+  <section class="grid-cols" id="gridCols"></section>
+</main>
+<p class="empty dim" id="empty" hidden>no items in this group</p>
+
+<footer class="foot dim">
+  <span id="count"></span> · <span>static build · runs anywhere</span>
+</footer>
+
+<div class="lb" id="lb" hidden>
+  <button class="lb-close" id="lbClose" aria-label="close (esc)">&times;</button>
+  <button class="lb-nav lb-prev" id="lbPrev" aria-label="previous (←)">&#8592;</button>
+  <div class="lb-stage" id="lbStage" role="dialog" aria-modal="true" aria-label="media viewer"></div>
+  <button class="lb-nav lb-next" id="lbNext" aria-label="next (→)">&#8594;</button>
+  <div class="lb-caption"><span id="lbTitle"></span><span class="dim" id="lbPos"></span><button type="button" class="lb-fav" id="lbFav" aria-pressed="false" data-off="☆ favorite" data-on="★ favorited" title="favorite: pins this ad to the top of the grid; kept in this browser">☆ favorite</button><a class="lb-link" id="lbLink" href="#" title="copy this ad's permalink">🔗 copy link</a><a class="lb-link" id="lbOpen" href="#" target="_blank" rel="noopener" title="open the creative on its own page">open ↗</a></div>
+</div>
+
+<script src="soon.js"></script>
+<script src="gallery.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+[
+  {
+    "id": "knit-video_knitsocial_youtube_scan_v1",
+    "type": "animation",
+    "group": "Ad spots",
+    "title": "Knit: find your people.",
+    "src": "animations/knit-video_knitsocial_youtube_scan_v1/",
+    "thumb": "assets/shots/knit-video_knitsocial_youtube_scan_v1.png",
+    "download": "animations/knit-video_knitsocial_youtube_scan_v1/final.mp4",
+    "downloadLabel": "MP4 4:5",
+    "desc": "Reddit video ad (video_knitsocial_youtube_scan_v1) for Knit, campaign beta_knitsocial_youtube_scan_2610."
+  }
+]

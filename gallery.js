@@ -1,0 +1,601 @@
+'use strict';
+
+// ---- data ----
+let ITEMS = [];
+let filter = 'All';
+let typeFilter = localStorage.getItem('gallery.type') || 'all'; // 'all' | 'animation' | 'image'
+if (!['all', 'animation', 'image'].includes(typeFilter)) typeFilter = 'all';
+let openIdx = -1; // index into filtered list currently shown in the lightbox
+
+const $ = (id) => document.getElementById(id);
+
+// ---- caption edits: type over any tile's caption; edits live in localStorage until they are
+// applied to gen-manifest.mjs. "copy" puts the edited ones on the clipboard as {id: caption} JSON.
+const EDITS_KEY = 'gallery.captionEdits.v1';
+let EDITS = {};
+try { EDITS = JSON.parse(localStorage.getItem(EDITS_KEY) || '{}') || {}; } catch { EDITS = {}; }
+const titleOf = (it) => EDITS[it.id] ?? it.title;
+const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function saveEdit(it, text) {
+  const v = text.replace(/\s+/g, ' ').trim();
+  if (!v || v === it.title) delete EDITS[it.id]; else EDITS[it.id] = v;
+  localStorage.setItem(EDITS_KEY, JSON.stringify(EDITS));
+  renderCopy();
+}
+function renderCopy() {
+  const n = Object.keys(EDITS).length, b = $('capCopy');
+  if (b.dataset.flash) return;
+  b.textContent = n ? `⧉ copy ${n} edit${n === 1 ? '' : 's'}` : '⧉ copy';
+  b.classList.toggle('has', n > 0);
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); }
+  catch (err) { // clipboard API refused (no focus / http): the textarea fallback
+    console.error(err);
+    const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+  }
+}
+async function copyEdits() {
+  const b = $('capCopy'), n = Object.keys(EDITS).length;
+  const flash = (msg) => { b.dataset.flash = '1'; b.textContent = msg; setTimeout(() => { delete b.dataset.flash; renderCopy(); }, 1600); };
+  if (!n) return flash('no edits yet: click a caption and type');
+  await copyText('Rename these ad gallery captions (superbot-ad-gallery-real-ui, {id: new caption}):\n```json\n' + JSON.stringify(EDITS, null, 2) + '\n```');
+  flash(`✓ copied ${n} edit${n === 1 ? '' : 's'}`);
+}
+
+// ---- mark for deletion: the ✕ a tile carries top-left NEVER deletes. It toggles the ad into a
+// marked set and copies the WHOLE set to the clipboard, so five clicks arrive in chat as one
+// paste. Keyed by id, like the caption edits; the deletion itself is applied to manifest.json.
+const MARKED_KEY = 'gallery.marked.v1';
+let MARKED = [];
+try { const v = JSON.parse(localStorage.getItem(MARKED_KEY) || '[]'); if (Array.isArray(v)) MARKED = v; } catch { MARKED = []; }
+function markPayload() {
+  const map = {};
+  for (const id of MARKED) {
+    const it = ITEMS.find((i) => i.id === id);
+    if (it) map[id] = titleOf(it); // a mark whose ad is already gone is never proposed for deletion again
+  }
+  return 'Delete these ad gallery items (superbot-ad-gallery-real-ui, {id: title}):\n```json\n' + JSON.stringify(map, null, 2) + '\n```';
+}
+function saveMarked() { localStorage.setItem(MARKED_KEY, JSON.stringify(MARKED)); }
+// a marked ad that the manifest no longer carries has already been deleted: drop the mark, or the
+// next payload would keep naming it (and the count would keep counting it)
+function pruneMarks() {
+  const known = new Set(ITEMS.map((i) => i.id));
+  const kept = MARKED.filter((id) => known.has(id));
+  if (kept.length === MARKED.length) return;
+  console.info(`gallery: dropped ${MARKED.length - kept.length} mark(s) for ads that are no longer in the gallery`);
+  MARKED = kept;
+  saveMarked();
+}
+function renderMarkBar() {
+  const n = MARKED.length;
+  $('markBar').hidden = n === 0;
+  $('markCopy').textContent = `✕ ${n} marked · copy list`;
+}
+async function toggleMark(it, btn) {
+  const i = MARKED.indexOf(it.id);
+  const nowMarked = i === -1;
+  if (nowMarked) MARKED.push(it.id); else MARKED.splice(i, 1);
+  saveMarked();
+  btn.classList.toggle('on', nowMarked);
+  btn.setAttribute('aria-pressed', String(nowMarked));
+  const tile = btn.closest('.tile');
+  if (tile) tile.classList.toggle('marked', nowMarked);
+  renderMarkBar();
+  if (!MARKED.length) { flashLabel(btn, '✕ cleared', '✕'); return; } // nothing marked: leave the clipboard be
+  await copyText(markPayload()); // every click rewrites the clipboard with the whole list
+  flashLabel(btn, `✓ ${MARKED.length}`, '✕');
+}
+function clearMarked() {
+  MARKED = [];
+  saveMarked();
+  renderMarkBar();
+  renderGrid(); // repaint so no tile is left showing a mark
+  copyText('Delete these ad gallery items (superbot-ad-gallery-real-ui): none, the marked list is empty.');
+}
+
+// ---- favorites: the ☆ a tile carries top-right pins it to the top of the grid. Nothing is written
+// to the manifest: the ids live in this browser's localStorage, so the order survives a reload.
+const FAV_KEY = 'gallery.favorites.v1';
+let FAVORITES = [];
+try { const v = JSON.parse(localStorage.getItem(FAV_KEY) || '[]'); if (Array.isArray(v)) FAVORITES = v.filter((id) => typeof id === 'string'); } catch { FAVORITES = []; }
+const isFav = (id) => FAVORITES.includes(id);
+function saveFavorites() { localStorage.setItem(FAV_KEY, JSON.stringify(FAVORITES)); }
+// a favorite whose ad left the manifest would keep a phantom rank in the sort: drop it
+function pruneFavorites() {
+  const known = new Set(ITEMS.map((i) => i.id));
+  const kept = FAVORITES.filter((id) => known.has(id));
+  if (kept.length === FAVORITES.length) return;
+  console.info(`gallery: dropped ${FAVORITES.length - kept.length} favorite(s) for ads that are no longer in the gallery`);
+  FAVORITES = kept;
+  saveFavorites();
+}
+// favorites first, the newest favorite at the very top; every other ad keeps manifest order
+// (Array.prototype.sort is stable, so an equal rank resolves to the original order)
+function favoritesFirst(list) {
+  const rank = new Map(FAVORITES.map((id, i) => [id, i]));
+  return list.sort((a, b) => (rank.has(a.id) ? rank.get(a.id) : Infinity) - (rank.has(b.id) ? rank.get(b.id) : Infinity));
+}
+// one button, two labels: the tile shows ☆/★, the lightbox shows the word
+function setFavButton(btn, on) {
+  if (!btn) return;
+  btn.classList.toggle('on', on);
+  btn.setAttribute('aria-pressed', String(on));
+  btn.textContent = on ? btn.dataset.on : btn.dataset.off;
+}
+// move the tiles already on screen into the new order instead of re-rendering the grid, so a
+// thumbnail never blanks out while its ad jumps to the top. Favorites belong in the band and
+// everything else in the columns, so each box keeps only the tiles that are its own.
+function reorderGrid() {
+  const fav = new Set(FAVORITES);
+  const band = $('favBand'), cols = $('gridCols');
+  for (const box of [band, cols]) { // a tile on the wrong side (favorited from the viewer, say) moves over
+    const inBand = box.id === 'favBand';
+    for (const el of [...box.children]) if (fav.has(el.dataset.id) !== inBand) (inBand ? cols : band).appendChild(el);
+  }
+  for (const box of [band, cols]) { // then each box reads in filtered() order
+    const tiles = new Map([...box.children].map((el) => [el.dataset.id, el]));
+    for (const it of filtered()) { const el = tiles.get(it.id); if (el) box.appendChild(el); }
+  }
+  band.hidden = !band.children.length;
+}
+function renderCount() {
+  const n = FAVORITES.length;
+  $('count').textContent = `${filtered().length} items` + (n ? ` · ${n} favorite${n === 1 ? '' : 's'}` : '');
+}
+function toggleFavorite(it, btn) {
+  const i = FAVORITES.indexOf(it.id);
+  const now = i === -1;
+  if (now) FAVORITES.unshift(it.id); else FAVORITES.splice(i, 1); // unshift: the ad just favorited lands on top
+  saveFavorites();
+  setFavButton(btn, now);
+  const tile = btn && btn.closest('.tile');
+  if (tile) tile.classList.toggle('favorited', now);
+  reorderGrid(); // also moves the tile into the band (or back into the columns): the node moves, the thumbnail never reloads
+  renderCount();
+  if (!$('lb').hidden) { // the list re-ranked under the viewer: keep the SAME ad open, no reload
+    const list = filtered();
+    openIdx = Math.max(0, list.indexOf(it));
+    setFavButton($('lbFav'), isFav(it.id));
+    renderLbPos(it, list.length);
+  }
+}
+
+// ---- permalinks: <gallery>/#<id> opens that ad in the viewer; the hash follows the open ad ----
+const permalink = (it) => `${location.origin}${location.pathname}#${encodeURIComponent(it.id)}`;
+const directLink = (it) => new URL(it.type === 'image' ? srcFor(it, it.src) : it.src, location.href).href;
+function flashLabel(el, msg, back) {
+  el.textContent = msg;
+  clearTimeout(el._flash);
+  el._flash = setTimeout(() => { el.textContent = back; }, 1400);
+}
+function setHash(it) {
+  const url = it ? `#${encodeURIComponent(it.id)}` : location.pathname + location.search;
+  if (it ? location.hash !== url : location.hash) history.replaceState(null, '', url);
+}
+function openFromHash() {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (!id) { if (!$('lb').hidden) close(); return; }
+  const it = ITEMS.find((i) => i.id === id);
+  if (!it) return;
+  if (!filtered().includes(it)) { // a link must open even when the filters would hide the ad
+    filter = 'All'; typeFilter = 'all';
+    renderTypePicker(); renderChips(); renderGrid();
+  }
+  open(it);
+}
+addEventListener('hashchange', openFromHash);
+
+// ---- aspect ratio (the animations read ?ar= through assets/ar.js) ----
+const RATIOS = [['4x5', '4:5', 4 / 5], ['16x9', '16:9', 16 / 9], ['4x3', '4:3', 4 / 3], ['1x1', '1:1', 1]];
+let ar = localStorage.getItem('gallery.ar') || '16x9';
+if (!RATIOS.some(r => r[0] === ar)) ar = '16x9';
+
+// the download link: assets/video/<id>.<ratio>.mp4, rendered offline by .tmp/ar-render (one loop, 1080 high)
+let dlGen = 0; // bumped per renderDl call so a stale existence probe cannot relabel a live button
+function renderDl() {
+  const a = $('lbDl');
+  const it = $('lb').hidden ? null : filtered()[openIdx];
+  if (!it) { a.hidden = true; return; }
+  if (it.type === 'image') { // a static ad downloads as the PNG for the picked ratio
+    const k = arOf(it);
+    a.href = srcFor(it, it.src);
+    a.download = `${it.id}-${k}.png`;
+    const s = sizeOf(it, k);
+    a.textContent = s ? `⤓ download ${s.w}×${s.h}` : '⤓ download png';
+    soonLabel(a, ' (mp4)');
+    a.hidden = false;
+    return;
+  }
+  const label = RATIOS.find(x => x[0] === ar)[1];
+  const own = it.downloads && it.downloads[ar];
+  if (own) { // a video-backed spot that ships its own film at this ratio (same-origin, so the soon card works)
+    a.href = own;
+    a.download = `${it.id}-${label.replace(':', 'x')}.mp4`;
+    a.textContent = `⤓ download ${label}`;
+    a.title = '';
+    a.classList.remove('no-render');
+    soonLabel(a, '');
+    a.hidden = false;
+    return;
+  }
+  if (it.download) { // a file too big for Pages lives on a GitHub release (one ratio); no same-origin probe
+    a.href = it.download;
+    a.removeAttribute('download');
+    a.textContent = `⤓ download ${it.downloadLabel || label}`;
+    a.title = '';
+    a.classList.remove('no-render');
+    delete a.dataset.soon; // cross-origin and hours long: it downloads as-is, without the card
+    a.hidden = false;
+    return;
+  }
+  const href = `assets/video/${it.id}.${ar}.mp4`;
+  a.href = href;
+  a.download = `${it.id}-${label.replace(':', 'x')}.mp4`;
+  a.textContent = `⤓ download ${label}`;
+  a.title = '';
+  a.classList.remove('no-render');
+  soonLabel(a, '');
+  a.hidden = false;
+  // the mp4 only exists where the offline render was produced: an ad whose page shipped
+  // without one must not offer a button that 404s on click (it reads "file wasn't
+  // available on site"). Probe it; a later open or ratio change wins the race.
+  const gen = ++dlGen;
+  fetch(href, { method: 'HEAD' })
+    .then((r) => { if (gen === dlGen && !r.ok) markNoRender(a, label); })
+    .catch(() => { if (gen === dlGen) markNoRender(a, label); });
+}
+function markNoRender(a, label) {
+  a.removeAttribute('href'); // no href: nothing to navigate to, so nothing to 404
+  a.classList.add('no-render');
+  delete a.dataset.soon;
+  a.textContent = `⤓ ${label} not rendered`;
+  a.title = 'this spot has no offline render at this ratio yet';
+}
+
+// ---- coming-soon intro (soon.js draws the card; this wires the top-right control) ----
+// with the intro on, a same-origin file is re-recorded in the browser with the card in front
+function soonLabel(a, suffix) {
+  if (!Soon.isOn()) { delete a.dataset.soon; return; }
+  a.dataset.soon = '1';
+  a.textContent += ` + soon${suffix}`;
+  a.title = `recorded in this tab with the "${Soon.variant().label}" card first; plays in real time, keep the tab visible`;
+}
+
+async function exportSoon(a) {
+  const it = filtered()[openIdx];
+  const showing = () => !$('lb').hidden && filtered()[openIdx] === it;
+  const base = a.download.replace(/\.(png|mp4)$/, '');
+  a.dataset.busy = '1';
+  try {
+    const file = await Soon.exportWithIntro({
+      kind: it.type,
+      url: a.getAttribute('href'),
+      onProgress: (p) => { if (showing()) a.textContent = `⏺ recording ${Math.round(p * 100)}%`; },
+    });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(file.blob);
+    link.download = `${base}-${Soon.variant().id}.${file.ext}`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+    delete a.dataset.busy;
+    if (showing()) renderDl();
+  } catch (err) {
+    console.error(err);
+    delete a.dataset.busy;
+    if (showing()) { a.textContent = `⚠ recording failed: ${err.message}`; setTimeout(() => showing() && renderDl(), 4000); }
+  }
+}
+
+$('lbDl').addEventListener('click', (e) => {
+  const a = $('lbDl');
+  if (!a.dataset.soon || !a.getAttribute('href')) return; // intro off, or a cross-origin file: plain download
+  e.preventDefault();
+  if (!a.dataset.busy) exportSoon(a);
+});
+
+function renderSoon() {
+  const on = Soon.isOn(), b = $('soonToggle'), sel = $('soonVariant');
+  b.textContent = on ? '● soon intro' : '○ soon intro';
+  b.classList.toggle('on', on);
+  b.setAttribute('aria-pressed', String(on));
+  if (!sel.options.length) sel.innerHTML = Soon.VARIANTS.map(v => `<option value="${v.id}">${esc(v.label)}</option>`).join('');
+  sel.value = Soon.variant().id;
+}
+
+function setSoon(on, variantId) {
+  if (variantId) Soon.setVariant(variantId);
+  Soon.setOn(on);
+  renderSoon();
+  if (!$('lb').hidden) renderStage(); // replays the open ad with (or without) the card
+}
+$('soonToggle').onclick = () => setSoon(!Soon.isOn());
+$('soonVariant').onchange = (e) => setSoon(true, e.target.value); // picking a variant means "use it"
+
+// a static ad ships one PNG per ratio (assets/ads/<id>.<ar>.png) and its src
+// carries a {ar} slot; an item without `ars` is served as-is
+function arOf(it) {
+  if (!it.ars || !it.ars.length) return ar;
+  return it.ars.includes(ar) ? ar : it.ars[0];
+}
+function srcFor(it, path) {
+  return it.ars ? path.replace('{ar}', arOf(it)) : path;
+}
+function sizeOf(it, key) {
+  const s = it.sizes && it.sizes[key || arOf(it)];
+  return s || (it.w ? { w: it.w, h: it.h } : null);
+}
+
+function renderAr() {
+  const box = $('lbAr');
+  box.innerHTML = '';
+  document.documentElement.style.setProperty('--tile-ar', RATIOS.find(x => x[0] === ar)[1].replace(':', '/'));
+  for (const [key, label] of RATIOS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = key === ar ? 'on' : '';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(key === ar));
+    b.textContent = label;
+    b.onclick = () => setAr(key);
+    box.appendChild(b);
+  }
+}
+
+function setAr(key) {
+  if (key === ar) return;
+  ar = key;
+  localStorage.setItem('gallery.ar', key);
+  renderAr();
+  renderGrid(); // the static ads swap to the PNG rendered at this ratio
+  if (!$('lb').hidden) renderStage(); // reloads the open frame at the new ratio; every spot loops anyway
+  renderDl();
+}
+
+// the frame fits the same box the 16:9 frame used (92vw x 82vh, capped at 1280x720) at the chosen ratio
+function frameSize() {
+  const r = RATIOS.find(x => x[0] === ar)[2];
+  const bw = Math.min(innerWidth * 0.92, 1280), bh = Math.min(innerHeight * 0.82, 720);
+  const w = Math.min(bw, bh * r);
+  return { w: Math.round(w), h: Math.round(w / r) };
+}
+
+function sizeFrame() {
+  const f = $('lbStage').querySelector('iframe');
+  if (!f) return;
+  const { w, h } = frameSize();
+  f.style.width = `${w}px`;
+  f.style.height = `${h}px`;
+}
+addEventListener('resize', sizeFrame);
+
+// group filter and type filter apply together (AND); each picker's own
+// counts are computed against the OTHER filter's current selection, so the
+// numbers shown always match what picking that option would actually show
+function byGroup(list) { return list.filter(i => filter === 'All' || i.group === filter); }
+function byType(list) { return list.filter(i => typeFilter === 'all' || i.type === typeFilter); }
+function filtered() {
+  return favoritesFirst(byType(byGroup(ITEMS)));
+}
+
+// ---- grid + filters ----
+function renderChips() {
+  const base = byType(ITEMS);
+  const counts = { All: base.length };
+  for (const it of base) counts[it.group] = (counts[it.group] || 0) + 1;
+  if (!(filter in counts)) filter = 'All'; // the active group vanished under the current type filter
+  const chips = $('chips');
+  chips.innerHTML = '';
+  if (Object.keys(counts).length < 3) { chips.hidden = true; return; } // one real group: no filters
+  for (const [name, n] of Object.entries(counts)) {
+    const b = document.createElement('button');
+    b.className = 'chip' + (filter === name ? ' on' : '');
+    b.textContent = `[${name.toLowerCase()} ${n}]`;
+    b.onclick = () => { filter = name; renderChips(); renderGrid(); };
+    chips.appendChild(b);
+  }
+}
+
+// the media-type picker: All / Videos (animation) / Images, same chip look
+function renderTypePicker() {
+  const base = byGroup(ITEMS);
+  const counts = {
+    all: base.length,
+    animation: base.filter(i => i.type === 'animation').length,
+    image: base.filter(i => i.type === 'image').length,
+  };
+  const box = $('typePick');
+  box.innerHTML = '';
+  const LABELS = [['all', 'all'], ['animation', '▶ videos'], ['image', '⤢ images']];
+  for (const [key, label] of LABELS) {
+    const b = document.createElement('button');
+    b.className = 'chip' + (typeFilter === key ? ' on' : '');
+    b.textContent = `[${label} ${counts[key]}]`;
+    b.onclick = () => {
+      typeFilter = key;
+      localStorage.setItem('gallery.type', key);
+      renderTypePicker();
+      renderChips();
+      renderGrid();
+    };
+    box.appendChild(b);
+  }
+}
+
+function renderGrid() {
+  const list = filtered();
+  const band = $('favBand'), grid = $('gridCols');
+  band.innerHTML = '';
+  grid.innerHTML = '';
+  $('empty').hidden = list.length > 0;
+  renderCount();
+  for (const it of list) {
+    // the tile is a container: the thumbnail and the badge open the lightbox, the caption is editable
+    const marked = MARKED.includes(it.id), favorited = isFav(it.id);
+    const t = document.createElement('div');
+    t.className = 'tile' + (it.type === 'animation' ? ' anim' : '') + (marked ? ' marked' : '') + (favorited ? ' favorited' : '');
+    t.id = `ad-${it.id}`;
+    t.dataset.id = it.id; // reorderGrid() moves tiles by this, never by the DOM id
+    const s = sizeOf(it);
+    const wh = s ? ` width="${s.w}" height="${s.h}"` : '';
+    const title = titleOf(it);
+    t.innerHTML =
+      `<button type="button" class="mark${marked ? ' on' : ''}" aria-pressed="${marked}" title="mark for deletion: copies the marked list to your clipboard, deletes nothing" aria-label="mark ${esc(it.id)} for deletion">✕</button>` +
+      `<button type="button" class="fav${favorited ? ' on' : ''}" aria-pressed="${favorited}" data-off="☆" data-on="★" title="favorite: pins it to the top of the grid; kept in this browser" aria-label="favorite ${esc(it.id)}">${favorited ? '★' : '☆'}</button>` +
+      `<button type="button" class="open" aria-label="${it.type === 'animation' ? 'play' : 'zoom'}: ${esc(title)}"><img src="${srcFor(it, it.thumb)}" alt="${esc(title)}" loading="lazy"${wh}></button>` +
+      `<span class="meta"><button type="button" class="badge">${it.type === 'animation' ? '▶ play' : '⤢ zoom'}</button>` +
+      `<a class="plink" href="#${encodeURIComponent(it.id)}" title="copy this ad's permalink">🔗 link</a>` +
+      `<span class="g">${it.group}</span><br><span class="t${EDITS[it.id] ? ' edited' : ''}" contenteditable="plaintext-only" spellcheck="false" role="textbox" aria-label="caption for ${esc(it.id)}" title="click to rename"></span></span>`;
+    const cap = t.querySelector('.t');
+    cap.textContent = title;
+    cap.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); cap.blur(); }
+      else if (e.key === 'Escape') { cap.textContent = titleOf(it); cap.blur(); }
+    });
+    cap.addEventListener('blur', () => { saveEdit(it, cap.textContent); cap.classList.toggle('edited', !!EDITS[it.id]); cap.textContent = titleOf(it); });
+    const im = t.querySelector('img');
+    if (im.complete) im.classList.add('loaded');
+    else im.onload = () => im.classList.add('loaded');
+    t.querySelector('.open').onclick = (e) => open(it, e);
+    t.querySelector('.badge').onclick = (e) => open(it, e);
+    t.querySelector('.mark').onclick = (e) => { e.preventDefault(); e.stopPropagation(); toggleMark(it, e.currentTarget); };
+    t.querySelector('.fav').onclick = (e) => { e.preventDefault(); e.stopPropagation(); toggleFavorite(it, e.currentTarget); };
+    const pl = t.querySelector('.plink');
+    pl.onclick = (e) => { // copy, don't navigate; right-click / middle-click still get the real #link
+      e.preventDefault();
+      copyText(permalink(it)).then(() => flashLabel(pl, '✓ copied', '🔗 link'));
+    };
+    // favorites fill the band across the top row; everything else flows into the columns below
+    (favorited ? band : grid).appendChild(t);
+  }
+  band.hidden = !list.some((it) => isFav(it.id));
+}
+
+// ---- lightbox ----
+let stageGen = 0; // bumped per renderStage so a card still running for the last ad stands down
+function renderLbPos(it, len) {
+  const arLabel = RATIOS.find(x => x[0] === (it.type === 'image' ? arOf(it) : ar))[1];
+  $('lbPos').textContent = `${openIdx + 1} / ${len} · ${it.group}${it.type === 'animation' || it.ars ? ` · ${arLabel}` : ''}`;
+}
+function renderStage() {
+  const list = filtered();
+  const it = list[openIdx];
+  const stage = $('lbStage');
+  stage.innerHTML = '';
+  const gen = ++stageGen;
+  const alive = () => gen === stageGen && !$('lb').hidden;
+  if (it.type === 'image') {
+    const img = document.createElement('img');
+    img.src = srcFor(it, it.src);
+    img.alt = it.title;
+    img.onclick = (e) => { // click-to-zoom, origin follows the click
+      img.style.setProperty('--zx', `${(e.clientX / innerWidth) * 100}%`);
+      img.style.setProperty('--zy', `${(e.clientY / innerHeight) * 100}%`);
+      img.classList.toggle('zoomed');
+    };
+    stage.appendChild(img);
+    if (Soon.isOn()) { // the card needs the poster's box, so it starts once the poster is decoded
+      img.decode()
+        .catch((err) => console.error(err))
+        .then(() => (alive() ? Soon.playIntro(stage, alive) : null))
+        .then((card) => Soon.fadeOut(card));
+    }
+  } else {
+    const f = document.createElement('iframe');
+    const src = `${it.src}${it.src.includes('?') ? '&' : '?'}ar=${ar}`;
+    if (!Soon.isOn()) f.src = src;
+    else { // the spot loads only after the card, so its timeline starts at 0 when the card leaves
+      Soon.playIntro(stage, alive).then((card) => {
+        if (!card) return;
+        f.addEventListener('load', () => Soon.fadeOut(card), { once: true });
+        setTimeout(() => Soon.fadeOut(card), 4000); // a frame that never fires load must not stay hidden
+        f.src = src;
+      });
+    }
+    f.allow = 'autoplay';
+    f.title = it.title;
+    // refocus the parent so ESC/arrows keep working after the frame grabs focus
+    f.addEventListener('load', () => $('lbClose').focus());
+    // a click or key in the lightbox is a user gesture the spot can use to
+    // unmute its clips (Safari and Chrome refuse sound before one)
+    const nudge = () => { try { f.contentWindow.postMessage({ type: 'unmute' }, '*'); } catch {} };
+    $('lb').addEventListener('pointerdown', nudge, { passive: true });
+    $('lb').addEventListener('keydown', nudge);
+    stage.appendChild(f);
+    sizeFrame();
+  }
+  renderDl();
+  setHash(it);
+  $('lbLink').textContent = '🔗 copy link';
+  $('lbLink').href = `#${encodeURIComponent(it.id)}`;
+  $('lbOpen').href = directLink(it);
+  $('lbTitle').textContent = titleOf(it);
+  setFavButton($('lbFav'), isFav(it.id));
+  renderLbPos(it, list.length);
+}
+
+function open(item, e) {
+  openIdx = filtered().indexOf(item);
+  if (e) { // open transition grows from the clicked tile
+    $('lbStage').style.setProperty('--ox', `${(e.clientX / innerWidth) * 100}%`);
+    $('lbStage').style.setProperty('--oy', `${(e.clientY / innerHeight) * 100}%`);
+  }
+  $('lb').hidden = false;
+  document.body.classList.add('lb-open');
+  document.body.style.overflow = 'hidden';
+  renderStage();
+}
+
+function close() {
+  $('lb').hidden = true;
+  document.body.classList.remove('lb-open');
+  $('lbDl').hidden = true;
+  $('lbStage').innerHTML = ''; // kills the iframe rAF + audio
+  document.body.style.overflow = '';
+  setHash(null);
+}
+
+function step(d) {
+  const list = filtered();
+  openIdx = (openIdx + d + list.length) % list.length;
+  renderStage();
+}
+
+$('lbClose').onclick = close;
+$('lbLink').onclick = (e) => {
+  e.preventDefault();
+  const it = filtered()[openIdx];
+  if (it) copyText(permalink(it)).then(() => flashLabel($('lbLink'), '✓ link copied', '🔗 copy link'));
+};
+$('lbPrev').onclick = () => step(-1);
+$('lbNext').onclick = () => step(1);
+$('lb').addEventListener('click', (e) => { if (e.target === $('lb')) close(); });
+document.addEventListener('keydown', (e) => {
+  if ($('lb').hidden) return;
+  if (e.key === 'Escape') close();
+  else if (e.key === 'ArrowLeft') step(-1);
+  else if (e.key === 'ArrowRight') step(1);
+});
+
+// ---- boot ----
+$('capCopy').onclick = copyEdits;
+$('markCopy').onclick = () => {
+  if (!MARKED.length) return;
+  copyText(markPayload()).then(() => flashLabel($('markCopy'), '✓ copied', `✕ ${MARKED.length} marked · copy list`));
+};
+$('markClear').onclick = clearMarked;
+$('lbFav').onclick = () => { const it = filtered()[openIdx]; if (it) toggleFavorite(it, $('lbFav')); };
+renderCopy();
+renderMarkBar();
+renderSoon();
+
+fetch('manifest.json')
+  .then(r => r.json())
+  .then(data => { ITEMS = data; pruneMarks(); pruneFavorites(); renderMarkBar(); renderAr(); renderTypePicker(); renderChips(); renderGrid(); openFromHash(); })
+  .catch(err => {
+    console.error(err);
+    document.getElementById('empty').hidden = false;
+    document.getElementById('empty').textContent = 'failed to load manifest.json — serve over http';
+  });
