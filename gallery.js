@@ -40,7 +40,7 @@ async function copyEdits() {
   const b = $('capCopy'), n = Object.keys(EDITS).length;
   const flash = (msg) => { b.dataset.flash = '1'; b.textContent = msg; setTimeout(() => { delete b.dataset.flash; renderCopy(); }, 1600); };
   if (!n) return flash('no edits yet: click a caption and type');
-  await copyText('Rename these ad gallery captions (superbot-ad-gallery-real-ui, {id: new caption}):\n```json\n' + JSON.stringify(EDITS, null, 2) + '\n```');
+  await copyText('Rename these Iteration ad gallery captions ({id: new caption}):\n```json\n' + JSON.stringify(EDITS, null, 2) + '\n```');
   flash(`✓ copied ${n} edit${n === 1 ? '' : 's'}`);
 }
 
@@ -56,7 +56,7 @@ function markPayload() {
     const it = ITEMS.find((i) => i.id === id);
     if (it) map[id] = titleOf(it); // a mark whose ad is already gone is never proposed for deletion again
   }
-  return 'Delete these ad gallery items (superbot-ad-gallery-real-ui, {id: title}):\n```json\n' + JSON.stringify(map, null, 2) + '\n```';
+  return 'Delete these Iteration ad gallery items ({id: title}):\n```json\n' + JSON.stringify(map, null, 2) + '\n```';
 }
 function saveMarked() { localStorage.setItem(MARKED_KEY, JSON.stringify(MARKED)); }
 // a marked ad that the manifest no longer carries has already been deleted: drop the mark, or the
@@ -93,7 +93,7 @@ function clearMarked() {
   saveMarked();
   renderMarkBar();
   renderGrid(); // repaint so no tile is left showing a mark
-  copyText('Delete these ad gallery items (superbot-ad-gallery-real-ui): none, the marked list is empty.');
+  copyText('Delete these Iteration ad gallery items: none, the marked list is empty.');
 }
 
 // ---- favorites: the ☆ a tile carries top-right pins it to the top of the grid. Nothing is written
