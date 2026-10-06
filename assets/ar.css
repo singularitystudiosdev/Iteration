@@ -1,4 +1,4 @@
-/* ar.css — the aspect-ratio stage shared by the 1920x1080 ad spots (pairs with ar.js).
+/* ar.css: the aspect-ratio stage shared by the 1920x1080 ad spots (pairs with ar.js).
    The stage keeps its 1080 height and takes --ar-w for its width; every .scene is inset:0, so it
    IS the frame. Nothing is cropped or letterboxed: each scene's window (the ChatGPT clone, the
    Chrome window, the superbot hero, the call desk, Gmail) is an HTML layout drawn at a design
@@ -56,7 +56,7 @@ html[data-ar="1x1"] #end .words p, html[data-ar="4x5"] #end .words p { margin-le
 html[data-ar="1x1"] #end .lock { zoom: .95; }
 html[data-ar="4x5"] #end .lock { zoom: .86; }
 
-/* the phone beside the hub (the ChatGPT-style spots' app window): 16:9 only — at any narrower
+/* the phone beside the hub (the ChatGPT-style spots' app window): 16:9 only, at any narrower
    ratio it is a sliver, so it goes and the hub takes the whole window */
 html[data-ar]:not([data-ar="16x9"]) .win-body .phone { display: none; }
 html[data-ar]:not([data-ar="16x9"]) .win-body .hub { right: 8px; }

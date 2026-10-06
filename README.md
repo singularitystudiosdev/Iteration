@@ -1,7 +1,7 @@
-# Iteration — ad gallery
+# Iteration: ad gallery
 
 Every ad creative for **Iteration**, in one shareable page. Click the tile to zoom in or watch
-the animation play live. Static — no build, no deps, no server: `index.html` reads
+the animation play live. Static: no build, no deps, no server: `index.html` reads
 `manifest.json` and renders the grid.
 
 **Live:** https://singularitystudiosdev.github.io/Iteration/
@@ -10,7 +10,7 @@ the animation play live. Static — no build, no deps, no server: `index.html` r
 
 1 ad spot:
 
-- **Knit: find your people.** — the Reddit video ad
+- **Knit: find your people.**, the Reddit video ad
   (`video_knitsocial_youtube_scan_v1`) for Knit, campaign `beta_knitsocial_youtube_scan_2610`,
   destination https://knitsocial.net/. 18 s loop, 4:5, with sound.
   `animations/knit-video_knitsocial_youtube_scan_v1/`.
@@ -37,7 +37,7 @@ back that same file.
 ## Adding an ad
 
 1. `mkdir animations/<id>/` and drop in `index.html`, `final.mp4`, `poster.png`
-   (copy an existing `index.html` — it autoplays muted-then-unmuted, loops, and unmutes on the
+   (copy an existing `index.html`: it autoplays muted-then-unmuted, loops, and unmutes on the
    viewer's first click/key/touch or on the gallery's `{ type: "unmute" }` message).
 2. Capture a thumbnail: `npx playwright screenshot --viewport-size "1280,720" --wait-for-timeout 4500 <url> assets/shots/<id>.png`, and pick the better-looking frame.
 3. Add the ad to `ADS` in `gen-manifest.mjs`, then `node gen-manifest.mjs`.

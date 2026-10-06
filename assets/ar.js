@@ -1,4 +1,4 @@
-/* ar.js — the aspect-ratio stage shared by every ad spot.
+/* ar.js: the aspect-ratio stage shared by every ad spot.
    Picks one of 16x9 / 4x3 / 1x1 / 4x5 from ?ar= (the gallery passes it) or, standalone, the
    nearest to the viewport. Exposes window.AR = { key, w, h, crop, ratio } in stage px (height is
    always 1080, width follows the ratio) and mirrors it onto <html> as data-ar + CSS vars:

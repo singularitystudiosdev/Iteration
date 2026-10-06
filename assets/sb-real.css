@@ -1,6 +1,6 @@
 /* The real superbot composer and chat, for the ads' superbot take (.chatui.sb).
    Measured against the shipped desktop composer (packages/ui/src/components/
-   composer.tsx): one rounded card, the draft on top, the control row below —
+   composer.tsx): one rounded card, the draft on top, the control row below:
    + | chat/build toggle ... SUPER | superbot v | computer | mic | send.
    Outside .sb every rule here is inert, so the ChatGPT take is untouched. */
 

@@ -4,7 +4,7 @@
 // that plays <id>/final.mp4 (4:5, with sound), with a 4:5 poster beside it; its tile thumbnail
 // is a capture at assets/shots/<id>.png and its lightbox download button points back at the
 // same final.mp4, so the ad a viewer watches is the ad they download. Add an entry here only
-// once the page, the film, the poster and the thumbnail are all on disk — the loop below skips
+// once the page, the film, the poster and the thumbnail are all on disk: the loop below skips
 // (and names) any ad whose files are missing rather than shipping a dead tile or a 404 download.
 import { existsSync, writeFileSync } from 'node:fs';
 

@@ -597,5 +597,5 @@ fetch('manifest.json')
   .catch(err => {
     console.error(err);
     document.getElementById('empty').hidden = false;
-    document.getElementById('empty').textContent = 'failed to load manifest.json — serve over http';
+    document.getElementById('empty').textContent = 'failed to load manifest.json: serve over http';
   });
